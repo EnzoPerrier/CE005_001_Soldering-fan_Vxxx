@@ -8,3 +8,31 @@
  */
 
 
+#include "main.h"
+#include "drivers/fan_driver.h"
+
+extern TIM_HandleTypeDef htim1;
+
+uint8_t Fan_status;
+
+Fan_Status_t Fan_Init(void){
+
+	if(HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1) != HAL_OK)
+	{
+		Error_Handler();
+		return FAN_ERROR;
+	}
+	else {
+
+		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
+		return FAN_OK;
+	}
+
+}
+
+//ARR=39 donc 0 = 0%; 20=50% et 40=100%
+
+Fan_Status_t Fan_SetSpeedPercent(void){
+
+	if()
+}

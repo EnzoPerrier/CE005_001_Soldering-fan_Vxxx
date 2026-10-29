@@ -1,0 +1,4 @@
+../Core/Src/drivers/encoder_driver.c:29:18:Encoder_Init	3
+../Core/Src/drivers/encoder_driver.c:48:18:Encoder_GetPosition	3
+../Core/Src/drivers/encoder_driver.c:75:6:Encoder_RegisterButtonCallback	1
+../Core/Src/drivers/encoder_driver.c:80:6:Encoder_OnButtonIrq	3

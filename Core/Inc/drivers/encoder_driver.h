@@ -1,95 +1,75 @@
 /**
- ******************************************************************************
- * @author  Enzo Perrier
  * @file    encoder_driver.h
- * @brief   Driver bas niveau pour l'encodeur rotatif (LPTIM3 en mode Encoder)
+ * @brief   Driver de l'encodeur rotatif (TIM2 en mode encodeur) et de son bouton.
+ * @author  Enzo Perrier
+ * @version 0.3
  *
- * Ce module encapsule l'accès matériel au LPTIM3 configuré en mode encodeur.
- * Il expose une interface indépendante de l'implémentation HAL sous-jacente,
- * afin que le code applicatif (menu, app_state...) n'ait jamais à connaître
- * le handle hlptim3 ni les détails d'accès registre.
- ******************************************************************************
- */
-
-/* ------------------------------------------------------------------------ */
-/* INCLUDE GUARD                                                          */
-/* ------------------------------------------------------------------------ */
-/*
- * Un .h peut être inclus (via #include) par plusieurs fichiers .c différents.
- * Sans protection, si deux fichiers incluent tous les deux ce .h (directement
- * ou indirectement), le compilateur verrait deux fois les mêmes déclarations
- * et générerait une erreur de "redéfinition".
+ * Ce module encapsule l'accès matériel à TIM2 configuré en mode encodeur.
+ * Le code applicatif n'a jamais à connaître le handle htim2 ni le HAL.
  *
- * Le mécanisme ci-dessous dit au préprocesseur :
- * "si ENCODER_DRIVER_H n'est pas encore défini, on le définit et on inclut
- * tout le contenu ; sinon, on saute tout le fichier."
- * C'est un standard absolu en C, à mettre dans TOUS tes .h.
+ * @note    Le driver ne dépend d'aucun thread ni d'aucun RTOS : l'appui sur
+ *          le bouton est signalé par un callback enregistré par l'application.
  */
 #ifndef ENCODER_DRIVER_H
 #define ENCODER_DRIVER_H
 
-/* ------------------------------------------------------------------------ */
-/* INCLUDES                                                               */
-/* ------------------------------------------------------------------------ */
-/*
- * On inclut stdint.h pour avoir accès aux types explicites (uint8_t,
- * int32_t...) exigés par les règles de codage industriel (voir point 1
- * de notre discussion précédente : pas de "int"/"char" bruts).
- */
 #include <stdint.h>
-
-/* ------------------------------------------------------------------------ */
-/* TYPES PUBLICS EXPOSÉS PAR LE MODULE                                   */
-/* ------------------------------------------------------------------------ */
+#include <stddef.h>
 
 /**
  * @brief Codes de retour du driver encodeur.
- *
- * On définit notre PROPRE enum de statut plutôt que de réutiliser
- * directement HAL_StatusTypeDef, pour deux raisons :
- *  - Le code appelant (menu.c, app_state.c) n'a pas besoin de savoir que
- *    ce driver utilise du HAL en interne (encapsulation : demain, si ce
- *    driver est réécrit pour un autre MCU sans HAL, l'interface ne bouge
- *    pas).
- *  - On peut exprimer des erreurs propres à NOTRE métier, comme
- *    "pas encore initialisé", qui n'existe pas dans HAL_StatusTypeDef.
+ * @note  Enum propre au module, pour ne pas exposer HAL_StatusTypeDef
+ *        et pouvoir exprimer des erreurs métier (ex: non initialisé).
  */
-typedef enum // typedef enum auto incrémente (ENCODER_OK = 0, ENCODER_ERROR = 1, ENCODER_NOT_INITIALIZED = 2, ENCODER_INVALID_PARAM = 3
+typedef enum
 {
     ENCODER_OK = 0,             /*!< Opération réussie */
     ENCODER_ERROR,              /*!< Erreur matérielle lors de l'appel HAL */
-    ENCODER_NOT_INITIALIZED,    /*!< Le driver n'a pas été initialisé avant usage */
-    ENCODER_INVALID_PARAM       /*!< Paramètre invalide passé à la fonction (ex: pointeur NULL) */
+    ENCODER_NOT_INITIALIZED,    /*!< Encoder_Init() n'a pas été appelée avant usage */
+    ENCODER_INVALID_PARAM       /*!< Paramètre invalide (ex: pointeur NULL) */
 } Encoder_Status_t;
 
-
-/* ------------------------------------------------------------------------ */
-/* PROTOTYPES DES FONCTIONS PUBLIQUES                                    */
-/* ------------------------------------------------------------------------ */
+/**
+ * @brief   Prototype du callback appelé lors d'un appui bouton valide.
+ * @warning Appelé en CONTEXTE D'INTERRUPTION : aucune fonction bloquante,
+ *          seules les fonctions FreeRTOS "FromISR" sont autorisées.
+ */
+typedef void (*Encoder_ButtonCallback_t)(void);
 
 /**
- * @brief  Initialise et démarre le driver encodeur.
- * @note   Doit être appelée une seule fois, avant tout appel à
- *         Encoder_GetPosition().
- * @retval ENCODER_OK    si le démarrage matériel a réussi
- * @retval ENCODER_ERROR si l'appel HAL sous-jacent a échoué
+ * @brief   Démarre le timer en mode encodeur.
+ * @note    Idempotent : un appel sur un driver déjà initialisé retourne
+ *          ENCODER_OK sans effet.
+ * @retval  ENCODER_OK     Démarrage réussi (ou déjà effectué).
+ * @retval  ENCODER_ERROR  L'appel HAL sous-jacent a échoué.
  */
 Encoder_Status_t Encoder_Init(void);
 
 /**
- * @brief  Lit la position courante de l'encodeur.
- *
- * @note   Cette fonction est une lecture pure : elle ne modifie aucun état
- *         interne du module (pas d'effet de bord), conformément aux règles
- *         de codage industriel évoquées.
- *
- * @param[out] p_position  Pointeur vers la variable où sera écrite la
- *                          position lue. Ne doit pas être NULL.(
- *
- * @retval ENCODER_OK                 la lecture a réussi, *p_position est valide
- * @retval ENCODER_NOT_INITIALIZED    Encoder_Init() n'a pas été appelée avant
- * @retval ENCODER_INVALID_PARAM      p_position est NULL
+ * @brief   Met à jour et retourne la position cumulée de l'encodeur.
+ * @warning Modifie l'état interne du module (mémorisation de la dernière
+ *          valeur brute du compteur). Cette fonction ne doit être appelée
+ *          que par UN SEUL thread (le thread UI).
+ * @note    La position est exprimée en impulsions (et non en crans) :
+ *          si l'encodeur produit N impulsions par cran, la conversion
+ *          est à faire côté appelant.
+ * @param[out] p_position  Position cumulée depuis Encoder_Init(). Ne doit pas être NULL.
+ * @retval  ENCODER_OK               Lecture réussie, *p_position est valide.
+ * @retval  ENCODER_NOT_INITIALIZED  Encoder_Init() n'a pas été appelée.
+ * @retval  ENCODER_INVALID_PARAM    p_position est NULL.
  */
 Encoder_Status_t Encoder_GetPosition(int32_t *p_position);
+
+/**
+ * @brief   Enregistre le callback d'appui bouton.
+ * @param[in] callback  Fonction à appeler, ou NULL pour désactiver.
+ */
+void Encoder_RegisterButtonCallback(Encoder_ButtonCallback_t callback);
+
+/**
+ * @brief   Traite l'interruption EXTI du bouton (anti-rebond logiciel inclus).
+ * @note    Réservé à irq_dispatch.c, ne pas appeler ailleurs.
+ */
+void Encoder_OnButtonIrq(void);
 
 #endif /* ENCODER_DRIVER_H */

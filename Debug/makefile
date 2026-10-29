@@ -69,8 +69,8 @@ all: main-build
 main-build: 005_CPU\ soldering\ fan.elf secondary-outputs
 
 # Tool invocations
-005_CPU\ soldering\ fan.elf 005_CPU\ soldering\ fan.map: $(OBJS) $(USER_OBJS) Z:\Projets\Projet\ 8\ Ventilateur\ soudure\Soft\CE005_001_Soldering-fan_Vxxx\STM32G431KBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "005_CPU soldering fan.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"Z:\Projets\Projet 8 Ventilateur soudure\Soft\CE005_001_Soldering-fan_Vxxx\STM32G431KBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="005_CPU soldering fan.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+005_CPU\ soldering\ fan.elf 005_CPU\ soldering\ fan.map: $(OBJS) $(USER_OBJS) C:\Users\sav02\Documents\CE005_001_Soldering-fan_Vxxx-\STM32G431KBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "005_CPU soldering fan.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\sav02\Documents\CE005_001_Soldering-fan_Vxxx-\STM32G431KBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="005_CPU soldering fan.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

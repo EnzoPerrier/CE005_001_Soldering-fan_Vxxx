@@ -5,13 +5,16 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../Core/Src/drivers/encoder_driver.c 
+../Core/Src/drivers/encoder_driver.c \
+../Core/Src/drivers/fan_driver.c 
 
 OBJS += \
-./Core/Src/drivers/encoder_driver.o 
+./Core/Src/drivers/encoder_driver.o \
+./Core/Src/drivers/fan_driver.o 
 
 C_DEPS += \
-./Core/Src/drivers/encoder_driver.d 
+./Core/Src/drivers/encoder_driver.d \
+./Core/Src/drivers/fan_driver.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes
@@ -21,7 +24,7 @@ Core/Src/drivers/%.o Core/Src/drivers/%.su Core/Src/drivers/%.cyclo: ../Core/Src
 clean: clean-Core-2f-Src-2f-drivers
 
 clean-Core-2f-Src-2f-drivers:
-	-$(RM) ./Core/Src/drivers/encoder_driver.cyclo ./Core/Src/drivers/encoder_driver.d ./Core/Src/drivers/encoder_driver.o ./Core/Src/drivers/encoder_driver.su
+	-$(RM) ./Core/Src/drivers/encoder_driver.cyclo ./Core/Src/drivers/encoder_driver.d ./Core/Src/drivers/encoder_driver.o ./Core/Src/drivers/encoder_driver.su ./Core/Src/drivers/fan_driver.cyclo ./Core/Src/drivers/fan_driver.d ./Core/Src/drivers/fan_driver.o ./Core/Src/drivers/fan_driver.su
 
 .PHONY: clean-Core-2f-Src-2f-drivers
 

@@ -1,158 +1,94 @@
 /**
- ******************************************************************************
- * @author  Enzo Perrier
  * @file    encoder_driver.c
- * @brief   Driver bas niveau pour l'encodeur rotatif (LPTIM3 en mode Encoder)
- *
- * Ce module encapsule l'accès matériel au LPTIM3 configuré en mode encodeur.
- * Il expose une interface indépendante de l'implémentation HAL sous-jacente,
- * afin que le code applicatif (menu, app_state...) n'ait jamais à connaître
- * le handle hlptim3 ni les détails d'accès registre.
- ******************************************************************************
+ * @brief   Implémentation du driver encodeur (LPTIM2, 16 bits). Doc publique : voir encoder_driver.h
+ * @author  Enzo Perrier
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
-#include "stm32g4xx_hal.h"
+#include "main.h"                       /* Inclut stm32g4xx_hal.h et les labels CubeMX */
 #include "drivers/encoder_driver.h"
-
 
 #include <stdbool.h>
 
-/* Extern variables ---------------------------------------------------------*/
-// ----- Encodeur rotatif
-extern LPTIM_HandleTypeDef hlptim2;
-
-// ----- Encodeur SW (BP)
-extern TX_EVENT_FLAGS_GROUP ui_events_group;
+/* Extern variables ----------------------------------------------------------*/
+extern TIM_HandleTypeDef htim2;         /* Généré par CubeMX : TIM2 en Encoder Mode */
 
 /* Private constants ---------------------------------------------------------*/
 
-// Taille du cycle du compteur matériel du LPTIM3 (Period = 65535 dans MX_LPTIM3_Init,
-// donc le registre boucle sur 16 bits, de 0 à 65535, puis repart à 0)
-#define ENCODER_RAW_COUNTER_RANGE   (65536)
-#define ENCODER_RAW_COUNTER_HALF    (ENCODER_RAW_COUNTER_RANGE / 2) // Moitié du cycle, seuil de détection du débordement
-
-// Délai minimum entre deux appuis valides, en millisecondes
-#define BUTTON_DEBOUNCE_MS   (50)
-
-/* Private macros ------------------------------------------------------------*/
-
-/* Private types -------------------------------------------------------------*/
+/** Délai minimum entre deux appuis valides, en millisecondes. */
+#define ENCODER_BUTTON_DEBOUNCE_MS  (50U)
 
 /* Private variables ---------------------------------------------------------*/
-// ----- Encodeur rotatif
-static bool encoder_status = false;
-static uint16_t valeur_brute_prec = 0; // Dernière valeur BRUTE (0-65535) lue du registre, jamais autre chose
-static int32_t position_cumulee = 0;  // Position cumulée totale, retournée à l'appelant (pas de limite pratique)
-
-
-
-/* Private function prototypes -----------------------------------------------*/
-
+static bool                     encoder_initialized = false;
+static uint32_t                 raw_previous        = 0U;   /* Dernière valeur BRUTE du compteur */
+static int32_t                  position_total      = 0;
+static Encoder_ButtonCallback_t button_callback     = NULL;
 
 /* Exported functions --------------------------------------------------------*/
 
-/**
- * @brief  				 Initialisation du module.
- * @retval ENCODER_OK    Encodeur initialisé.
- * @retval ENCODER_ERROR Initialization failed.
- */
 Encoder_Status_t Encoder_Init(void)
 {
-	if(encoder_status) // Si l'encodeur est déjà initialisé
-	{
-		return ENCODER_OK;
-	}
+    if (encoder_initialized)
+    {
+        return ENCODER_OK;
+    }
 
-	if(HAL_LPTIM_Encoder_Start(&hlptim3) != HAL_OK)
-	{
-		encoder_status = false;
-		return ENCODER_ERROR;
-	}
+    if (HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL) != HAL_OK)
+    {
+        return ENCODER_ERROR;
+    }
 
-	// Synchronise la valeur précédente avec le compteur matériel.
-	valeur_brute_prec = (int32_t)HAL_LPTIM_ReadCounter(&hlptim3);
-	position_cumulee = 0;
-	encoder_status = true;
-	return ENCODER_OK;
+    raw_previous        = __HAL_TIM_GET_COUNTER(&htim2);
+    position_total      = 0;
+    encoder_initialized = true;
+
+    return ENCODER_OK;
 }
 
-/**
- * @brief 				 		   Cette fonction permet de récupérer la position cumulée de l'encodeur.
- * @param[out] p_position  		   Pointeur vers la variable qui recevra la position lue. Ne doit pas être NULL.
- * @retval ENCODER_OK    		   Lecture OK.
- * @retval ENCODER_NOT_INITIALIZED driver non initialisé.
- * @retval ENCODER_INVALID_PARAM   paramètre invalide passé dans la fonction (ex: pointeur = NULL).
- */
 Encoder_Status_t Encoder_GetPosition(int32_t *p_position)
 {
-	uint16_t valeur_brute_act = 0;
-	int32_t delta = 0;
+    if (p_position == NULL)
+    {
+        return ENCODER_INVALID_PARAM;
+    }
 
-	if(p_position == NULL) // Si adresse du pointeur = NULL
-	{
-		return(ENCODER_INVALID_PARAM);
-	}
+    if (!encoder_initialized)
+    {
+        return ENCODER_NOT_INITIALIZED;
+    }
 
-	if(!encoder_status) // Si l'encodeur n'a pas été initialisé
-	{
-		return(ENCODER_NOT_INITIALIZED);
-	}
+    uint32_t raw_now = __HAL_TIM_GET_COUNTER(&htim2);
 
-	valeur_brute_act = (uint16_t)HAL_LPTIM_ReadCounter(&hlptim3); // Valeur brute (0-65535), comparable à valeur_brute_prec
+    /* Choix assumé : soustraction non signée puis conversion en signé.
+     * Le compteur étant sur 32 bits, le passage par zéro est géré par
+     * l'arithmétique modulo 2^32. */
+    int32_t delta = (int32_t)(raw_now - raw_previous);
 
-	delta = valeur_brute_act - valeur_brute_prec;
+    position_total += delta;
+    raw_previous    = raw_now;      /* On mémorise la valeur BRUTE, jamais la position cumulée */
 
-	// Corrige le delta en cas de passage par 0/65535.
-	if(delta > ENCODER_RAW_COUNTER_HALF) // Si le delta est supérieur à la moitié de 2^16 (32768)
-	{
-		delta -= ENCODER_RAW_COUNTER_RANGE;
-	}
-	else if(delta < -ENCODER_RAW_COUNTER_HALF)
-	{
-		delta += ENCODER_RAW_COUNTER_RANGE;
-	}
-	else
-	{
-		// Pas de débordement, le delta calculé est déjà correct
-	}
+    *p_position = position_total;
 
-	position_cumulee += delta; // On accumule le mouvement corrigé dans la position cumulée
-
-	*p_position = position_cumulee; // On stock à l'adresse de la variable (*p_pointeur) la position cumulée de l'encodeur
-
-	valeur_brute_prec = valeur_brute_act; // On garde uniquement la valeur BRUTE pour le prochain calcul de delta (jamais la position cumulée !)
-
-	return ENCODER_OK;
+    return ENCODER_OK;
 }
 
-/**
- * @brief Handle the encoder button external interrupt.
- * @details
- * This callback is called by the STM32 HAL when a GPIO external interrupt
- * occurs. If the interrupt comes from the encoder push button, the
- * corresponding UI event flag is set in the ThreadX event flags group.
- * @param[in] GPIO_Pin GPIO pin that triggered the external interrupt.
- * @retval None
- */
-
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+void Encoder_RegisterButtonCallback(Encoder_ButtonCallback_t callback)
 {
-	static uint32_t last_button_press_tick = 0; // Variable utilisée pour le debounce logiciel du BP encodeur
-	uint32_t now = HAL_GetTick();
+    button_callback = callback;
+}
 
-    if (GPIO_Pin == ENCOD_SW_Pin)
+void Encoder_OnButtonIrq(void)
+{
+    static uint32_t last_press_tick = 0U;   /* Anti-rebond logiciel */
+    uint32_t now = HAL_GetTick();
+
+    if ((now - last_press_tick) >= ENCODER_BUTTON_DEBOUNCE_MS)
     {
-    	if ((now - last_button_press_tick) >= BUTTON_DEBOUNCE_MS) // Debounce logiciel
-    	{
-    		tx_event_flags_set(&ui_events_group, UI_EVENT_BUTTON_PRESSED, TX_OR);
-    		last_button_press_tick = now;
-    	}
+        last_press_tick = now;
 
+        if (button_callback != NULL)
+        {
+            button_callback();
+        }
     }
 }
-
-
-/* Private functions ---------------------------------------------------------*/
-
