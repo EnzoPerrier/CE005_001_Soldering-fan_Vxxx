@@ -13,7 +13,7 @@
 
 extern TIM_HandleTypeDef htim1;
 
-uint8_t Fan_status;
+uint8_t Fan_status = FAN_NOT_INITIALIZED;
 
 Fan_Status_t Fan_Init(void){
 
@@ -32,7 +32,17 @@ Fan_Status_t Fan_Init(void){
 
 //ARR=39 donc 0 = 0%; 20=50% et 40=100%
 
-Fan_Status_t Fan_SetSpeedPercent(void){
+Fan_Status_t Fan_SetSpeedPercent(uint8_t percent){
 
-	if()
+	if(Fan_status != FAN_OK){
+		Fan_status = FAN_ERROR;
+		Error_Handler();
+	}
+
+	if(percent < 0 || percent > 100){
+		Fan_status = FAN_INVALID_PARAM;
+	}
+
+
+
 }
