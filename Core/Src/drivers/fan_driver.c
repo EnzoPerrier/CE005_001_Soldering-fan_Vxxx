@@ -1,102 +1,180 @@
 /**
  ******************************************************************************
- * @author  Enzo Perrier
  * @file    fan_driver.c
- * @brief   Driver bas niveau pour le ventilateur (commande PWM)
- *
+ * @brief   Implémentation du driver ventilateur. Doc publique : voir fan_driver.h
+ * @author  Enzo Perrier
  ******************************************************************************
  */
 
-
-#include "main.h"
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"                       /* Inclut stm32g4xx_hal.h et les labels CubeMX */
 #include "drivers/fan_driver.h"
 
-extern TIM_HandleTypeDef htim1; // Génrateur PWM
-extern TIM_HandleTypeDef htim3; // Tachymètre
+#include <stdbool.h>
 
-#define FAN_TIMER_FREQ_HZ       1000000U  // TIM3 configuré à 1 MHz donc 1 tick = 1µs 100 = 1ms...
-#define FAN_PULSES_PER_REV      2U // Nombre de ticks par tour du ventilateur
-#define FAN_TIMEOUT_MS          1000U // Délai à partir duquel on estime que le ventilateur est à l'arrêt
+/* Extern variables ----------------------------------------------------------*/
+extern TIM_HandleTypeDef htim1;         /* Généré par CubeMX : TIM1_CH1, PWM (PA8) */
+extern TIM_HandleTypeDef htim3;         /* Généré par CubeMX : TIM3_CH2, Input Capture (tachymètre) */
 
-static volatile uint32_t s_lastCapture = 0;
-static volatile uint32_t s_periodTicks = 0;
-static volatile uint8_t  s_captureReady = 0;
-static volatile uint32_t s_lastPulseTick = 0;
+/* Private constants ---------------------------------------------------------*/
 
-Fan_Status_t Fan_Init(void){
+/**
+ * Fréquence de comptage de TIM3, en Hz (1 tick = 1 µs).
+ * @warning Doit correspondre au prescaler configuré dans CubeMX.
+ */
+#define FAN_TACH_TIMER_HZ       (1000000U)
 
-	if((HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1) && HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2)) != HAL_OK) // Initialisation PWM + compteur tachymètre
-	{
-		Error_Handler();
-		return FAN_ERROR;
-	}
-	else {
+/** Nombre d'impulsions tachymètre par tour du ventilateur (selon fiche technique). */
+#define FAN_TACH_PULSES_PER_REV (2U)
 
-		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-		return FAN_OK;
-	}
+/** Valeur attendue de TIM3->ARR : le calcul de période suppose un compteur 16 bits complet. */
+#define FAN_TACH_EXPECTED_ARR   (0xFFFFU)
 
-}
+/* Private variables ---------------------------------------------------------*/
 
-//ARR=39 donc 0 = 0%; 20=50% et 40=100%
+/* Partie commande (thread uniquement) */
+static bool     s_initialized     = false;
+static uint8_t  s_speedPercent    = 0U;     /* Dernière consigne appliquée */
 
-Fan_Status_t Fan_SetSpeedPercent(uint8_t percent){
+/* Partie tachymètre : écrite par l'ISR, lue par Fan_GetRpm() */
+static volatile bool     s_hasReference  = false;   /* Une capture précédente existe */
+static volatile bool     s_periodValid   = false;   /* s_periodTicks est exploitable */
+static volatile uint16_t s_lastCapture   = 0U;      /* Dernière valeur capturée (16 bits) */
+static volatile uint32_t s_periodTicks   = 0U;      /* Période entre 2 impulsions, en ticks */
+static volatile uint32_t s_lastPulseMs   = 0U;      /* HAL_GetTick() de la dernière impulsion */
 
-	uint8_t val_PWM; // min = 0 max = 39
+/* Exported functions --------------------------------------------------------*/
 
-	val_PWM = (percent*39)/100;
-
-	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1,val_PWM);
-
-	return FAN_OK;
-}
-
-Fan_Status_t Fan_GetRpm(uint32_t *p_rpm){
-
-	if(s_captureReady){
-
-		if ((HAL_GetTick() - s_lastPulseTick) > FAN_TIMEOUT_MS)
-		{
-		    *p_rpm = 0;
-		    return FAN_OK;
-		}
-
-		*p_rpm = (60U * FAN_TIMER_FREQ_HZ) / (s_periodTicks * FAN_PULSES_PER_REV);
-	}
-
-
-}
-
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+Fan_Status_t Fan_Init(void)
 {
-    if ((htim->Instance == TIM3) &&
-        (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2))
+    if (s_initialized)
     {
-        uint32_t capture;
-
-        capture = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2);
-
-        if (s_lastCapture != 0U)
-        {
-            uint32_t delta;
-
-            if (capture >= s_lastCapture)
-            {
-                delta = capture - s_lastCapture;
-            }
-            else
-            {
-                delta = (htim->Init.Period + 1U) // Pour gérer le débordement, Init.period = 65535 (16 bits) soit 65536 valeurs possibles
-                        - s_lastCapture + capture;
-            }
-
-            s_periodTicks = delta; // Periode entre 2 ticks
-            s_captureReady = 1U;
-        }
-
-        s_lastCapture = capture;
-        s_lastPulseTick = HAL_GetTick();
+        return FAN_OK;
     }
+
+    /* Garde-fou : le calcul de période en 16 bits n'est valide que si ARR = 0xFFFF. */
+    if (__HAL_TIM_GET_AUTORELOAD(&htim3) != FAN_TACH_EXPECTED_ARR)
+    {
+        return FAN_ERROR;
+    }
+
+    /* Deux appels HAL = deux tests séparés (un "&&" entre les retours masquerait une erreur). */
+    if (HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1) != HAL_OK)
+    {
+        return FAN_ERROR;
+    }
+
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0U);   /* Départ à 0 % */
+
+    if (HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2) != HAL_OK)
+    {
+        (void)HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);  /* Retour à un état connu */
+        return FAN_ERROR;
+    }
+
+    s_speedPercent = 0U;
+    s_initialized  = true;
+
+    return FAN_OK;
 }
 
+Fan_Status_t Fan_SetSpeedPercent(uint8_t percent)
+{
+    if (!s_initialized)
+    {
+        return FAN_NOT_INITIALIZED;
+    }
 
+    if (percent > FAN_SPEED_PERCENT_MAX)
+    {
+        return FAN_INVALID_PARAM;
+    }
+
+    /* Le rapport cyclique vaut CCR / (ARR + 1). En mode PWM 1, CCR > ARR donne 100 %.
+     * On lit ARR dans le timer au lieu de le recopier : si CubeMX change, le driver suit. */
+    uint32_t period = __HAL_TIM_GET_AUTORELOAD(&htim1) + 1U;
+    uint32_t ccr    = ((uint32_t)percent * period) / FAN_SPEED_PERCENT_MAX;
+
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccr);
+    s_speedPercent = percent;
+
+    return FAN_OK;
+}
+
+Fan_Status_t Fan_GetSpeedPercent(uint8_t *p_percent)
+{
+    if (p_percent == NULL)
+    {
+        return FAN_INVALID_PARAM;
+    }
+
+    if (!s_initialized)
+    {
+        return FAN_NOT_INITIALIZED;
+    }
+
+    *p_percent = s_speedPercent;
+
+    return FAN_OK;
+}
+
+Fan_Status_t Fan_GetRpm(uint32_t *p_rpm)
+{
+    if (p_rpm == NULL)
+    {
+        return FAN_INVALID_PARAM;
+    }
+
+    *p_rpm = 0U;    /* Valeur sûre par défaut pour tous les chemins d'erreur */
+
+    if (!s_initialized)
+    {
+        return FAN_NOT_INITIALIZED;
+    }
+
+    /* Copie cohérente des variables partagées avec l'ISR (section critique très courte). */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool     valid   = s_periodValid;
+    uint32_t period  = s_periodTicks;
+    uint32_t lastMs  = s_lastPulseMs;
+    __set_PRIMASK(primask);
+
+    if (!valid || (period == 0U))
+    {
+        return FAN_NO_TACH;
+    }
+
+    if ((HAL_GetTick() - lastMs) > FAN_TACH_TIMEOUT_MS)
+    {
+        return FAN_NO_TACH;     /* Signal perdu : la période mémorisée est périmée */
+    }
+
+    /* 60 * 1e6 = 6e7 : tient dans 32 bits. */
+    *p_rpm = (60U * FAN_TACH_TIMER_HZ) / (period * FAN_TACH_PULSES_PER_REV);
+
+    return FAN_OK;
+}
+
+void Fan_OnTachCapture(void)
+{
+    uint32_t now_ms  = HAL_GetTick();
+    uint16_t capture = (uint16_t)HAL_TIM_ReadCapturedValue(&htim3, TIM_CHANNEL_2);
+
+    if (s_hasReference && ((now_ms - s_lastPulseMs) <= FAN_TACH_TIMEOUT_MS))
+    {
+        /* Soustraction non signée en 16 bits : le débordement du compteur
+         * (65535 -> 0) est géré automatiquement par l'arithmétique modulo 2^16. */
+        s_periodTicks = (uint16_t)(capture - s_lastCapture);
+        s_periodValid = true;
+    }
+    else
+    {
+        /* Première impulsion, ou reprise après un arrêt : pas de période fiable. */
+        s_periodValid = false;
+    }
+
+    s_lastCapture = capture;
+    s_lastPulseMs = now_ms;
+    s_hasReference = true;
+}

@@ -1,4 +1,5 @@
-../Core/Src/drivers/fan_driver.c:26:14:Fan_Init	4
-../Core/Src/drivers/fan_driver.c:43:14:Fan_SetSpeedPercent	1
-../Core/Src/drivers/fan_driver.c:54:14:Fan_GetRpm	1
-../Core/Src/drivers/fan_driver.c:60:6:HAL_TIM_IC_CaptureCallback	5
+../Core/Src/drivers/fan_driver.c:48:14:Fan_Init	5
+../Core/Src/drivers/fan_driver.c:81:14:Fan_SetSpeedPercent	3
+../Core/Src/drivers/fan_driver.c:104:14:Fan_GetSpeedPercent	3
+../Core/Src/drivers/fan_driver.c:121:14:Fan_GetRpm	6
+../Core/Src/drivers/fan_driver.c:159:6:Fan_OnTachCapture	3

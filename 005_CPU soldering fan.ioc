@@ -1,11 +1,16 @@
 #MicroXplorer Configuration settings - do not modify
 ADC2.Channel-1\#ChannelRegularConversion=ADC_CHANNEL_17
+ADC2.Channel-2\#ChannelRegularConversion=ADC_CHANNEL_13
 ADC2.CommonPathInternal=null|null|null|null
-ADC2.IPParameters=Rank-1\#ChannelRegularConversion,Channel-1\#ChannelRegularConversion,SamplingTime-1\#ChannelRegularConversion,OffsetNumber-1\#ChannelRegularConversion,NbrOfConversionFlag,CommonPathInternal
+ADC2.IPParameters=Rank-1\#ChannelRegularConversion,Channel-1\#ChannelRegularConversion,SamplingTime-1\#ChannelRegularConversion,OffsetNumber-1\#ChannelRegularConversion,NbrOfConversionFlag,Rank-2\#ChannelRegularConversion,Channel-2\#ChannelRegularConversion,SamplingTime-2\#ChannelRegularConversion,OffsetNumber-2\#ChannelRegularConversion,NbrOfConversion,CommonPathInternal
+ADC2.NbrOfConversion=2
 ADC2.NbrOfConversionFlag=1
 ADC2.OffsetNumber-1\#ChannelRegularConversion=ADC_OFFSET_NONE
+ADC2.OffsetNumber-2\#ChannelRegularConversion=ADC_OFFSET_NONE
 ADC2.Rank-1\#ChannelRegularConversion=1
-ADC2.SamplingTime-1\#ChannelRegularConversion=ADC_SAMPLETIME_2CYCLES_5
+ADC2.Rank-2\#ChannelRegularConversion=2
+ADC2.SamplingTime-1\#ChannelRegularConversion=ADC_SAMPLETIME_247CYCLES_5
+ADC2.SamplingTime-2\#ChannelRegularConversion=ADC_SAMPLETIME_247CYCLES_5
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=

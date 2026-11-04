@@ -1,1 +1,2 @@
-../Core/Src/irq_dispatch.c:10:6:HAL_GPIO_EXTI_Callback	2
+../Core/Src/irq_dispatch.c:24:6:HAL_GPIO_EXTI_Callback	2
+../Core/Src/irq_dispatch.c:37:6:HAL_TIM_IC_CaptureCallback	3

@@ -1,6 +1,6 @@
 /**
  * @file    encoder_driver.c
- * @brief   Implémentation du driver encodeur (LPTIM2, 16 bits). Doc publique : voir encoder_driver.h
+ * @brief   Implémentation du driver encodeur (TIM2, 32 bits). Doc publique : voir encoder_driver.h
  * @author  Enzo Perrier
  */
 
